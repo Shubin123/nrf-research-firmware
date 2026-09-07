@@ -1,0 +1,39 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-check-tools:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install firmware build dependencies
+        run: sudo apt-get update && sudo apt-get install -y sdcc binutils
+
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip pyusb pyserial
+
+      - name: Build firmware
+        run: make
+
+      - name: Compile Python sources
+        run: python -m py_compile bastille $(find prog tools -name '*.py' -print)
+
+      - name: Check command help
+        run: |
+          ./bastille --help
+          ./bastille scan --help
+          ./bastille sniff --help
+          ./bastille map --help
+          ./bastille tone --help
