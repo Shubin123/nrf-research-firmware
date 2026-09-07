@@ -6,18 +6,24 @@ Firmware and research tools for Nordic Semiconductor nRF24LU1+ based USB dongles
 
 - SDCC (minimum version 3.1.0)
 - GNU Binutils
-- Python
+- Python 3.9 or newer
 - PyUSB
 - platformio
 
-Install dependencies on Ubuntu:
+Create an isolated Python environment and install the host-side dependencies:
 
 ```
-sudo apt-get install sdcc binutils python python-pip
-sudo pip install -U pip
-sudo pip install -U -I pyusb
-sudo pip install -U platformio
+python3 -m venv .venv
+.venv/bin/pip install -U pip pyusb pyserial
 ```
+
+On Ubuntu, install the build dependencies with:
+
+```
+sudo apt-get install sdcc binutils platformio
+```
+
+`bastille` (documented below) automatically uses `.venv` when it is present.
 
 ## Supported Hardware
 
@@ -32,6 +38,34 @@ The following hardware has been tested and is known to work.
 ```
 make
 ```
+
+## Quick start with `bastille`
+
+The root-level `bastille` command provides a single entry point for building,
+flashing, and using the tools. Hardware-touching commands automatically request
+root privileges; help and build commands do not.
+
+```
+./bastille build
+./bastille status
+./bastille scan --help
+./bastille sniff -a 61:49:66:82:03
+```
+
+Useful commands:
+
+```
+./bastille flash [firmware.bin]
+./bastille flash-logitech [formatted.bin] [formatted.ihx]
+./bastille restore-logitech original-firmware.hex
+./bastille spi-flash [firmware.bin]
+./bastille spi-dump
+./bastille map -a 61:49:66:82:03
+./bastille tone -c 5
+```
+
+`scan`, `sniff`, `map`, and `tone` pass any following arguments directly to the
+underlying tool. Use `./bastille <command> --help` for the current option list.
 
 ## Flash over USB
 
@@ -109,11 +143,12 @@ Pseudo-promiscuous mode device discovery tool, which sweeps a list of channels a
 ```
 usage: ./nrf24-scanner.py [-h] [-c N [N ...]] [-v] [-l] [-p PREFIX] [-d DWELL]
 
-optional arguments:
+options:
   -h, --help                          show this help message and exit
   -c N [N ...], --channels N [N ...]  RF channels
   -v, --verbose                       Enable verbose output
   -l, --lna                           Enable the LNA (for CrazyRadio PA dongles)
+  -i, --index INDEX                   Dongle index
   -p PREFIX, --prefix PREFIX          Promiscuous mode address prefix
   -d DWELL, --dwell DWELL             Dwell time per channel, in milliseconds
 ```
@@ -138,15 +173,18 @@ Device following sniffer, which follows a specific nRF24 device as it hops, and 
 ```
 usage: ./nrf24-sniffer.py [-h] [-c N [N ...]] [-v] [-l] -a ADDRESS [-t TIMEOUT] [-k ACK_TIMEOUT] [-r RETRIES]
 
-optional arguments:
+options:
   -h, --help                                 show this help message and exit
   -c N [N ...], --channels N [N ...]         RF channels
   -v, --verbose                              Enable verbose output
   -l, --lna                                  Enable the LNA (for CrazyRadio PA dongles)
+  -i, --index INDEX                          Dongle index
   -a ADDRESS, --address ADDRESS              Address to sniff, following as it changes channels
   -t TIMEOUT, --timeout TIMEOUT              Channel timeout, in milliseconds
   -k ACK_TIMEOUT, --ack_timeout ACK_TIMEOUT  ACK timeout in microseconds, accepts [250,4000], step 250
   -r RETRIES, --retries RETRIES              Auto retry limit, accepts [0,15]
+  -p PING_PAYLOAD, --ping_payload PING_PAYLOAD
+                                             Ping payload, e.g. 0F:0F:0F:0F
 ```
 
 Sniff packets from address 61:49:66:82:03 on all channels
@@ -160,17 +198,19 @@ Sniff packets from address 61:49:66:82:03 on all channels
 Star network mapper, which attempts to discover the active addresses in a star network by changing the last byte in the given address, and pinging each of 256 possible addresses on each channel in the channel list.
 
 ```
-usage: ./nrf24-network-mapper.py [-h] [-c N [N ...]] [-v] [-l] -a ADDRESS [-p PASSES] [-k ACK_TIMEOUT] [-r RETRIES]
+usage: ./nrf24-network-mapper.py [-h] [-c N [N ...]] [-v] [-l] [-i INDEX] -a ADDRESS [-k ACK_TIMEOUT] [-r RETRIES] [-p PING_PAYLOAD]
 
-optional arguments:
+options:
   -h, --help                                 show this help message and exit
   -c N [N ...], --channels N [N ...]         RF channels
   -v, --verbose                              Enable verbose output
   -l, --lna                                  Enable the LNA (for CrazyRadio PA dongles)
+  -i, --index INDEX                          Dongle index
   -a ADDRESS, --address ADDRESS              Known address
-  -p PASSES, --passes PASSES                 Number of passes (default 2)
   -k ACK_TIMEOUT, --ack_timeout ACK_TIMEOUT  ACK timeout in microseconds, accepts [250,4000], step 250
   -r RETRIES, --retries RETRIES              Auto retry limit, accepts [0,15]
+  -p PING_PAYLOAD, --ping_payload PING_PAYLOAD
+                                             Ping payload, e.g. 0F:0F:0F:0F
 ```
 
 Map the star network that address 61:49:66:82:03 belongs to
@@ -188,11 +228,12 @@ This script will cause the transceiver to transmit a tone on the first channel t
 ```
 usage: ./nrf24-continuous-tone-test.py [-h] [-c N [N ...]] [-v] [-l]
 
-optional arguments:
+options:
   -h, --help                          show this help message and exit
   -c N [N ...], --channels N [N ...]  RF channels
   -v, --verbose                       Enable verbose output
   -l, --lna                           Enable the LNA (for CrazyRadio PA dongles)
+  -i, --index INDEX                   Dongle index
 
 ```
 
