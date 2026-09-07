@@ -67,6 +67,28 @@ Useful commands:
 `scan`, `sniff`, `map`, and `tone` pass any following arguments directly to the
 underlying tool. Use `./bastille <command> --help` for the current option list.
 
+### Complete `bastille` command reference
+
+| Command | Purpose | Arguments and defaults |
+| --- | --- | --- |
+| `./bastille build` | Build the RFStorm firmware. | None. Produces `bin/dongle.bin`, `bin/dongle.formatted.bin`, and `bin/dongle.formatted.ihx`. |
+| `./bastille clean` | Remove firmware build artifacts. | None. |
+| `./bastille status` | Report the USB identity of a connected supported dongle. | None. If it cannot see a device, retry with `sudo ./bastille status`. |
+| `./bastille flash [firmware.bin]` | Flash a CrazyRadio PA, nRF24LU1+ breakout, or an already-flashed RFStorm device over USB. | Optional firmware path; defaults to `bin/dongle.bin`. Requires a device in a compatible bootloader/firmware state. |
+| `./bastille flash-logitech [formatted.bin] [formatted.ihx]` | Replace the stock firmware on a compatible Logitech Unifying C-U0007 with RFStorm. | Defaults to `bin/dongle.formatted.bin` and `bin/dongle.formatted.ihx`. Build first with `./bastille build`. |
+| `./bastille restore-logitech original-firmware.hex` | Restore a Logitech Unifying receiver from an original Logitech firmware image. | The `.hex` image path is required. |
+| `./bastille spi-flash [firmware.bin]` | Recover or flash an nRF24LU1+ over SPI using the Teensy flasher. | Optional firmware path; defaults to `bin/dongle.bin`. Requires the separately-built/wired Teensy flasher. |
+| `./bastille spi-dump` | Read nRF24LU1+ flash over SPI and print Intel HEX to standard output. | None. Requires the separately-built/wired Teensy flasher. Redirect output to save it: `./bastille spi-dump > backup.hex`. |
+| `./bastille scan [options]` | Passively sweep for Enhanced ShockBurst devices. | For example: `./bastille scan -c 1 2 3 -p A9`. See `./bastille scan --help`. |
+| `./bastille sniff -a ADDRESS [options]` | Follow a known nRF24 address and print decoded packets. | An address is required, for example `./bastille sniff -a 61:49:66:82:03`. See `./bastille sniff --help`. |
+| `./bastille map -a ADDRESS [options]` | Probe a star network for active addresses. | A known address is required, for example `./bastille map -a 61:49:66:82:03`. This command transmits probes. See `./bastille map --help`. |
+| `./bastille tone -c CHANNEL [options]` | Transmit a continuous RF test tone on a channel. | For example: `./bastille tone -c 5`. Use only where transmission is authorized; see `./bastille tone --help`. |
+| `./bastille docs [query]` | List or open MouseJack disclosure advisories and whitepapers from a sibling clone. | Optional filename search, such as `./bastille docs logitech`. Set `MOUSEJACK_DIR` if the `mousejack` repository is not at `../mousejack`. |
+
+The USB flashing and radio commands may require administrator privileges.
+`bastille` requests them automatically; it leaves `status` as a non-privileged
+check first so it can be used without a password prompt.
+
 ## Flash over USB
 
 nRF24LU1+ chips come with a factory programmed bootloader occupying the topmost 2KB of flash memory. The CrazyRadio firmware and RFStorm research firmware support USB commands to enter the Nordic bootloader.
