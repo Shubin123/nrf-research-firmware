@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 '''
   Copyright (C) 2016 Bastille Networks
 
@@ -24,13 +24,13 @@ from lib import common
 common.init_args('./nrf24-network-mapper.py')
 common.parser.add_argument('-a', '--address', type=str, help='Known address', required=True)
 common.parser.add_argument('-k', '--ack_timeout', type=int, help='ACK timeout in microseconds, accepts [250,4000], step 250', default=500)
-common.parser.add_argument('-r', '--retries', type=int, help='Auto retry limit, accepts [0,15]', default='5', choices=xrange(0, 16), metavar='RETRIES')
+common.parser.add_argument('-r', '--retries', type=int, help='Auto retry limit, accepts [0,15]', default='5', choices=range(0, 16), metavar='RETRIES')
 common.parser.add_argument('-p', '--ping_payload', type=str, help='Ping payload, ex 0F:0F:0F:0F', default='0F:0F:0F:0F', metavar='PING_PAYLOAD')
 common.parse_and_init()
 
 # Parse the address
-address = common.args.address.replace(':', '').decode('hex')[::-1][:5]
-address_string = ':'.join('{:02X}'.format(ord(b)) for b in address[::-1])
+address = bytes.fromhex(common.args.address.replace(':', ''))[::-1][:5]
+address_string = ':'.join('{:02X}'.format(b) for b in address[::-1])
 if len(address) < 2:
   raise Exception('Invalid address: {0}'.format(common.args.address))
 
@@ -38,36 +38,43 @@ if len(address) < 2:
 common.radio.enter_sniffer_mode(address)
 
 # Parse the ping payload
-ping_payload = common.args.ping_payload.replace(':', '').decode('hex')
+ping_payload = bytes.fromhex(common.args.ping_payload.replace(':', ''))
 
 # Format the ACK timeout and auto retry values
 ack_timeout = int(common.args.ack_timeout / 250) - 1
 ack_timeout = max(0, min(ack_timeout, 15))
 retries = max(0, min(common.args.retries, 15))
 
+logging.info('Mapping network around {0} - press Ctrl+C to stop early and see results so far.'.format(address_string))
+
 # Ping each address on each channel args.passes number of times
 valid_addresses = []
-for p in range(2):
+try:
+  for p in range(2):
 
-  # Step through each potential address
-  for b in range(256):
+    # Step through each potential address
+    for b in range(256):
 
-    try_address = chr(b) + address[1:]
-    logging.info('Trying address {0}'.format(':'.join('{:02X}'.format(ord(b)) for b in try_address[::-1])))
-    common.radio.enter_sniffer_mode(try_address)
+      try_address = bytes([b]) + address[1:]
+      logging.info('Trying address {0}'.format(':'.join('{:02X}'.format(b) for b in try_address[::-1])))
+      common.radio.enter_sniffer_mode(try_address)
 
-    # Step through each channel
-    for c in range(len(common.args.channels)):
-      common.radio.set_channel(common.channels[c])
+      # Step through each channel
+      for c in range(len(common.args.channels)):
+        common.radio.set_channel(common.channels[c])
 
-      # Attempt to ping the address
-      if common.radio.transmit_payload(ping_payload, ack_timeout, retries):
-        valid_addresses.append(try_address)
-        logging.info('Successful ping of {0} on channel {1}'.format(
-          ':'.join('{:02X}'.format(ord(b)) for b in try_address[::-1]),
-          common.channels[c]))
+        # Attempt to ping the address
+        if common.radio.transmit_payload(ping_payload, ack_timeout, retries):
+          valid_addresses.append(try_address)
+          logging.info('Successful ping of {0} on channel {1}'.format(
+            ':'.join('{:02X}'.format(b) for b in try_address[::-1]),
+            common.channels[c]))
+except KeyboardInterrupt:
+  logging.info('Stopped early.')
 
 # Print the results
 valid_addresses = list(set(valid_addresses))
+if not valid_addresses:
+  logging.info('No valid addresses found.')
 for addr in valid_addresses:
-  logging.info('Found address {0}'.format(':'.join('{:02X}'.format(ord(b)) for b in addr[::-1])))
+  logging.info('Found address {0}'.format(':'.join('{:02X}'.format(b) for b in addr[::-1])))

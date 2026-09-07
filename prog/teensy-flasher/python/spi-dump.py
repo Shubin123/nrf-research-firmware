@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 '''
   Copyright (C) 2016 Bastille Networks
 
@@ -30,23 +30,19 @@ WRITE_PAGE      = 0x02
 # Teensy serial client
 class client(serial.Serial):
 
-  # Constructor
-  def __init__self(self, *args, **kwargs):
-    Serial.__init__(self, *args, **kwargs)
-
   # Read until a newline
   def readline(self):
-    string = ''
+    data = b''
     while True:
       char = self.read()
-      if char != '\n':
-        string += char
+      if char != b'\n':
+        data += char
       else: break
-    return string
+    return data
 
   # Read a page
   def read_page(self, page):
-    command = map(chr, [READ_PAGE, page & 0xFF])
+    command = bytes([READ_PAGE, page & 0xFF])
     self.write(command)
     return self.readline()
 
@@ -68,16 +64,16 @@ ser = client(port=comport, baudrate=115200)
 # Read the flash memory
 logging.info("Reading flash memory")
 address = 0
-for x in range(32768/512):
+for x in range(32768//512):
   page_hex = ser.read_page(x)
-  page_bytes = page_hex.decode('hex')
+  page_bytes = bytes.fromhex(page_hex.decode('ascii'))
   for y in range(16):
-    line_bytes = '20{0:04X}00{1}'.format(address, ''.join("{:02X}".format(ord(c)) for c in page_bytes[y*32:(y+1)*32]))
-    checksum = sum(map(ord, line_bytes.decode('hex')))
+    line_bytes = '20{0:04X}00{1}'.format(address, ''.join("{:02X}".format(c) for c in page_bytes[y*32:(y+1)*32]))
+    checksum = sum(bytes.fromhex(line_bytes))
     checksum = (~checksum + 1 & 0xFF)
-    print ':{0}{1:02X}'.format(line_bytes, checksum)
+    print(':{0}{1:02X}'.format(line_bytes, checksum))
     address += 32
-print ':00000001FF'
+print(':00000001FF')
 
 # Close the serial connection
 ser.close()

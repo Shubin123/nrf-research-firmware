@@ -4,7 +4,7 @@ LDFLAGS = --xram-loc 0x8000 --xram-size 2048 --model-large
 VPATH = src/
 OBJS = main.rel usb.rel usb_desc.rel radio.rel
 
-SDCC_VER := $(shell $(SDCC) -v | grep -Po "\d\.\d\.\d" | sed "s/\.//g")
+SDCC_VER := $(shell $(SDCC) -v | sed -n 's/.*[^0-9]\([0-9]\)\.\([0-9]\)\.\([0-9]\).*/\1\2\3/p' | head -1)
 
 all: sdcc bin/ dongle.bin
 

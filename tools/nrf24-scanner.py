@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 '''
   Copyright (C) 2016 Bastille Networks
 
@@ -27,7 +27,7 @@ common.parser.add_argument('-d', '--dwell', type=float, help='Dwell time per cha
 common.parse_and_init()
 
 # Parse the prefix addresses
-prefix_address = common.args.prefix.replace(':', '').decode('hex')
+prefix_address = bytes.fromhex(common.args.prefix.replace(':', ''))
 if len(prefix_address) > 5:
   raise Exception('Invalid prefix address: {0}'.format(args.address))
 
@@ -40,29 +40,47 @@ dwell_time = common.args.dwell / 1000
 # Set the initial channel
 common.radio.set_channel(common.channels[0])
 
+logging.info('Scanning {0} channel(s), {1:.0f}ms dwell. Waiting for packets - press Ctrl+C to stop.'.format(
+    len(common.channels), common.args.dwell))
+logging.info('{0: >2}  {1: >2}  {2}  {3}'.format('CH', 'LN', 'ADDRESS          ', 'PAYLOAD'))
+
 # Sweep through the channels and decode ESB packets in pseudo-promiscuous mode
 last_tune = time.time()
+last_heartbeat = time.time()
+heartbeat_interval = 3
+packet_count = 0
 channel_index = 0
-while True:
+try:
+  while True:
 
-  # Increment the channel
-  if len(common.channels) > 1 and time.time() - last_tune > dwell_time:
-    channel_index = (channel_index + 1) % (len(common.channels))
-    common.radio.set_channel(common.channels[channel_index])
-    last_tune = time.time()
+    # Increment the channel
+    if len(common.channels) > 1 and time.time() - last_tune > dwell_time:
+      channel_index = (channel_index + 1) % (len(common.channels))
+      common.radio.set_channel(common.channels[channel_index])
+      last_tune = time.time()
 
-  # Receive payloads
-  value = common.radio.receive_payload()
-  if len(value) >= 5:
+    # Periodic heartbeat so it's clear the scan is still running when nothing is heard
+    if time.time() - last_heartbeat > heartbeat_interval:
+      logging.info('... still scanning (channel {0}, {1} packet(s) seen so far)'.format(
+          common.channels[channel_index], packet_count))
+      last_heartbeat = time.time()
 
-    # Split the address and payload
-    address, payload = value[0:5], value[5:]
+    # Receive payloads
+    value = common.radio.receive_payload()
+    if len(value) >= 5:
 
-    # Log the packet
-    logging.info('{0: >2}  {1: >2}  {2}  {3}'.format(
-              common.channels[channel_index],
-              len(payload),
-              ':'.join('{:02X}'.format(b) for b in address),
-              ':'.join('{:02X}'.format(b) for b in payload)))
+      # Split the address and payload
+      address, payload = value[0:5], value[5:]
+      packet_count += 1
+      last_heartbeat = time.time()
+
+      # Log the packet
+      logging.info('{0: >2}  {1: >2}  {2}  {3}'.format(
+                common.channels[channel_index],
+                len(payload),
+                ':'.join('{:02X}'.format(b) for b in address),
+                ':'.join('{:02X}'.format(b) for b in payload)))
+except KeyboardInterrupt:
+  logging.info('Stopped. {0} packet(s) seen.'.format(packet_count))
 
 

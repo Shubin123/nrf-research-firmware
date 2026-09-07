@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+'''
+Unified command runner for this repo's RFStorm/MouseJack tooling.
+
+Wraps: firmware build, USB/SPI flashing, and the nrf24 recon tools,
+so there's one entry point instead of remembering venv paths, sudo,
+and each script's own CLI.
+
+Usage:
+  ./bastille build                          Build the firmware (make)
+  ./bastille clean                          Remove build artifacts (make clean)
+  ./bastille status                         Detect what firmware state the dongle is in
+  ./bastille flash [firmware.bin]           Flash over USB (CrazyRadio PA / breakout / RFStorm dongle)
+  ./bastille flash-logitech [bin] [ihx]     Flash a Logitech Unifying (C-U0007) dongle with RFStorm
+  ./bastille restore-logitech <hex>         Restore a Logitech Unifying dongle to stock firmware
+  ./bastille spi-flash [firmware.bin]       Flash over SPI via a Teensy (recovery path)
+  ./bastille spi-dump                       Dump flash over SPI via a Teensy (prints Intel HEX)
+  ./bastille scan   [-- tool args]          Pseudo-promiscuous scanner   (-h for full options)
+  ./bastille sniff  [-- tool args]          Follow one known address    (-h for full options)
+  ./bastille map    [-- tool args]          Map a star network          (-h for full options)
+  ./bastille tone   [-- tool args]          Continuous tone TX test     (-h for full options)
+  ./bastille docs [query]                   Browse MouseJack disclosure advisories/whitepapers
+                                             (needs ../mousejack cloned alongside this repo)
+
+scan/sniff/map/tone forward all trailing args to the real script, so
+`./bastille sniff -a 61:49:66:82:03` works exactly like calling
+tools/nrf24-sniffer.py directly. Hardware-touching subcommands need
+root; this script re-execs itself under sudo automatically (which
+means it needs a real terminal to prompt for your password).
+'''
+
+import os
+import sys
+import subprocess
+import argparse
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent
+VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python3"
+TOOLS_DIR = REPO_ROOT / "tools"
+FLASHER_DIR = REPO_ROOT / "prog" / "usb-flasher"
+SPI_DIR = REPO_ROOT / "prog" / "teensy-flasher" / "python"
+MOUSEJACK_DIR = Path(os.environ.get("MOUSEJACK_DIR", REPO_ROOT.parent / "mousejack"))
+BIN_DIR = REPO_ROOT / "bin"
+
+THIS_SCRIPT = Path(__file__).resolve()
+
+
+def in_venv():
+  return Path(sys.prefix).resolve() == (REPO_ROOT / ".venv").resolve()
+
+
+def ensure_interpreter():
+  '''Re-exec under the local venv's python3 if pyusb isn't importable here.'''
+  try:
+    import usb  # noqa: F401
+  except ImportError:
+    if VENV_PYTHON.exists() and not in_venv():
+      os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), str(THIS_SCRIPT)] + sys.argv[1:])
+    sys.stderr.write(
+      "PyUSB not found, and no .venv/ is set up.\n"
+      "Run: python3 -m venv .venv && .venv/bin/pip install -U pyusb\n"
+    )
+    sys.exit(1)
+
+
+def ensure_root():
+  if os.geteuid() != 0:
+    os.execvp('sudo', ['sudo', sys.executable, str(THIS_SCRIPT)] + sys.argv[1:])
+
+
+def run_script(path, extra_args):
+  interpreter = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
+  os.execv(interpreter, [interpreter, str(path)] + list(extra_args))
+
+
+def cmd_build(args):
+  subprocess.check_call(["make"], cwd=str(REPO_ROOT))
+
+
+def cmd_clean(args):
+  subprocess.check_call(["make", "clean"], cwd=str(REPO_ROOT))
+
+
+def cmd_status(args):
+  ensure_interpreter()
+  import usb.core
+  checks = [
+    ("Logitech Unifying - stock HID firmware",  0x046d, 0xc52b),
+    ("Logitech Unifying - bootloader mode",     0x046d, 0xaaaa),
+    ("RFStorm research firmware",               0x1915, 0x0102),
+    ("Nordic factory bootloader",               0x1915, 0x0101),
+  ]
+  found_any = False
+  for label, vid, pid in checks:
+    dev = usb.core.find(idVendor=vid, idProduct=pid)
+    if dev:
+      found_any = True
+      print("[FOUND] {0}  ({1:04x}:{2:04x})".format(label, vid, pid))
+  if not found_any:
+    print("No known dongle state detected.")
+    if os.geteuid() != 0:
+      print("Raw USB enumeration for this device may need root - try: sudo ./bastille status")
+
+
+def cmd_flash(args):
+  ensure_interpreter()
+  ensure_root()
+  firmware = args.firmware or str(BIN_DIR / "dongle.bin")
+  run_script(FLASHER_DIR / "usb-flash.py", [firmware])
+
+
+def cmd_flash_logitech(args):
+  ensure_interpreter()
+  ensure_root()
+  fw_bin = args.bin or str(BIN_DIR / "dongle.formatted.bin")
+  fw_ihx = args.ihx or str(BIN_DIR / "dongle.formatted.ihx")
+  run_script(FLASHER_DIR / "logitech-usb-flash.py", [fw_bin, fw_ihx])
+
+
+def cmd_restore_logitech(args):
+  ensure_interpreter()
+  ensure_root()
+  run_script(FLASHER_DIR / "logitech-usb-restore.py", [args.hexfile])
+
+
+def cmd_spi_flash(args):
+  firmware = args.firmware or str(BIN_DIR / "dongle.bin")
+  run_script(SPI_DIR / "spi-flash.py", [firmware])
+
+
+def cmd_spi_dump(args):
+  run_script(SPI_DIR / "spi-dump.py", [])
+
+
+def cmd_docs(args):
+  if not MOUSEJACK_DIR.exists():
+    print("mousejack repo not found at {0}".format(MOUSEJACK_DIR))
+    print("Clone it with: git clone https://github.com/BastilleResearch/mousejack.git '{0}'".format(MOUSEJACK_DIR))
+    sys.exit(1)
+
+  doc_files = sorted((MOUSEJACK_DIR / "doc" / "advisories").glob("*.txt")) + \
+              sorted((MOUSEJACK_DIR / "doc" / "pdf").glob("*.pdf"))
+
+  if not args.query:
+    print("MouseJack disclosure advisories and whitepapers ({0}):\n".format(MOUSEJACK_DIR))
+    for f in doc_files:
+      print(" ", f.relative_to(MOUSEJACK_DIR))
+    print("\nOpen one with: ./bastille docs <search term>  (e.g. 'logitech', 'whitepaper')")
+    return
+
+  matches = [f for f in doc_files if args.query.lower() in f.name.lower()]
+  if not matches:
+    print("No docs matching '{0}'.".format(args.query))
+    sys.exit(1)
+  if len(matches) > 1:
+    print("{0} matches for '{1}':".format(len(matches), args.query))
+    for f in matches:
+      print(" ", f.relative_to(MOUSEJACK_DIR))
+    print("\nBe more specific.")
+    return
+
+  target = matches[0]
+  if target.suffix == ".pdf":
+    subprocess.Popen(["open", str(target)])
+    print("Opened {0}".format(target.name))
+  else:
+    print(target.read_text(errors="replace"))
+
+
+def wants_help(rest):
+  return "-h" in rest or "--help" in rest
+
+
+def cmd_scan(args):
+  ensure_interpreter()
+  if not wants_help(args.rest): ensure_root()
+  run_script(TOOLS_DIR / "nrf24-scanner.py", args.rest)
+
+
+def cmd_sniff(args):
+  ensure_interpreter()
+  if not wants_help(args.rest): ensure_root()
+  run_script(TOOLS_DIR / "nrf24-sniffer.py", args.rest)
+
+
+def cmd_map(args):
+  ensure_interpreter()
+  if not wants_help(args.rest): ensure_root()
+  run_script(TOOLS_DIR / "nrf24-network-mapper.py", args.rest)
+
+
+def cmd_tone(args):
+  ensure_interpreter()
+  if not wants_help(args.rest): ensure_root()
+  run_script(TOOLS_DIR / "nrf24-continuous-tone-test.py", args.rest)
+
+
+def build_parser():
+  parser = argparse.ArgumentParser(
+    prog="./bastille",
+    description="Unified command runner for the RFStorm/MouseJack firmware and tools in this repo.",
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+  )
+  sub = parser.add_subparsers(dest="command", required=True)
+
+  p = sub.add_parser("build", help="Build the firmware (make)")
+  p.set_defaults(func=cmd_build)
+
+  p = sub.add_parser("clean", help="Remove build artifacts (make clean)")
+  p.set_defaults(func=cmd_clean)
+
+  p = sub.add_parser("status", help="Detect what firmware state the connected dongle is in")
+  p.set_defaults(func=cmd_status)
+
+  p = sub.add_parser("flash", help="Flash over USB (CrazyRadio PA / breakout board / RFStorm dongle)")
+  p.add_argument("firmware", nargs="?", help="Firmware .bin (default: bin/dongle.bin)")
+  p.set_defaults(func=cmd_flash)
+
+  p = sub.add_parser("flash-logitech", help="Flash a Logitech Unifying (C-U0007) dongle with RFStorm")
+  p.add_argument("bin", nargs="?", help="Formatted .bin (default: bin/dongle.formatted.bin)")
+  p.add_argument("ihx", nargs="?", help="Formatted .ihx (default: bin/dongle.formatted.ihx)")
+  p.set_defaults(func=cmd_flash_logitech)
+
+  p = sub.add_parser("restore-logitech", help="Restore a Logitech Unifying dongle to its stock firmware")
+  p.add_argument("hexfile", help="Path to the original Logitech firmware .hex")
+  p.set_defaults(func=cmd_restore_logitech)
+
+  p = sub.add_parser("spi-flash", help="Flash over SPI via a Teensy (recovery path for bricked dongles)")
+  p.add_argument("firmware", nargs="?", help="Firmware .bin (default: bin/dongle.bin)")
+  p.set_defaults(func=cmd_spi_flash)
+
+  p = sub.add_parser("spi-dump", help="Dump flash memory over SPI via a Teensy (prints Intel HEX to stdout)")
+  p.set_defaults(func=cmd_spi_dump)
+
+  p = sub.add_parser("docs", help="Browse MouseJack disclosure advisories/whitepapers (needs ../mousejack)")
+  p.add_argument("query", nargs="?", help="Filter by filename substring (e.g. 'logitech', 'whitepaper')")
+  p.set_defaults(func=cmd_docs)
+
+  for name, help_text in [
+    ("scan", "Pseudo-promiscuous scanner (-h for full options)"),
+    ("sniff", "Follow one known device address (-h for full options)"),
+    ("map", "Map a star network (-h for full options)"),
+    ("tone", "Continuous tone TX test (-h for full options)"),
+  ]:
+    sub.add_parser(name, help=help_text, add_help=False)
+
+  return parser
+
+
+# Commands whose args are forwarded verbatim to the underlying script's own
+# argparse (including -h). These are handled before argparse ever sees them,
+# since argparse.REMAINDER inside a subparser doesn't reliably capture a
+# leading '-' token (e.g. `./bastille scan -h`).
+PASSTHROUGH_COMMANDS = {
+  "scan": cmd_scan,
+  "sniff": cmd_sniff,
+  "map": cmd_map,
+  "tone": cmd_tone,
+}
+
+
+def main():
+  if len(sys.argv) > 1 and sys.argv[1] in PASSTHROUGH_COMMANDS:
+    args = argparse.Namespace(rest=sys.argv[2:])
+    PASSTHROUGH_COMMANDS[sys.argv[1]](args)
+    return
+
+  parser = build_parser()
+  args = parser.parse_args()
+  args.func(args)
+
+
+if __name__ == "__main__":
+  main()

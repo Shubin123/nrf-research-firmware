@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 '''
   Copyright (C) 2016 Bastille Networks
 
@@ -24,8 +24,8 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s.%(msecs)03d]  %(mes
 # Check pyusb dependency
 try:
   from usb import core as _usb_core
-except ImportError, ex:
-  print '''
+except ImportError as ex:
+  print('''
 ------------------------------------------
 | PyUSB was not found or is out of date. |
 ------------------------------------------
@@ -33,7 +33,7 @@ except ImportError, ex:
 Please update PyUSB using pip:
 
 sudo pip install -U -I pip && sudo pip install -U -I pyusb
-'''
+''')
   sys.exit(1)
 
 # Sufficiently long timeout for use in a VM
@@ -53,8 +53,11 @@ class unifying_dongle:
       # Detach the kernel driver
       logging.info("Detaching kernel driver from Logitech dongle - HID mode")
       for ep in range(3):
-        if self.dongle.is_kernel_driver_active(ep):
-          self.dongle.detach_kernel_driver(ep)
+        try:
+          if self.dongle.is_kernel_driver_active(ep):
+            self.dongle.detach_kernel_driver(ep)
+        except (usb.core.USBError, NotImplementedError):
+          pass
 
       # Set the default configuration
       self.dongle.set_configuration()
@@ -89,8 +92,11 @@ class unifying_dongle:
             # Detach the kernel driver
             logging.info("Putting dongle into firmware update mode - firmware update mode")
             for ep in range(3):
-              if self.dongle.is_kernel_driver_active(ep):
-                self.dongle.detach_kernel_driver(ep)
+              try:
+                if self.dongle.is_kernel_driver_active(ep):
+                  self.dongle.detach_kernel_driver(ep)
+              except (usb.core.USBError, NotImplementedError):
+                pass
 
             # Set the configuration
             self.dongle.set_configuration(1)
@@ -112,8 +118,11 @@ class unifying_dongle:
 
       # Detach the kernel driver
       for ep in range(3):
-        if self.dongle.is_kernel_driver_active(ep):
-          self.dongle.detach_kernel_driver(ep)
+        try:
+          if self.dongle.is_kernel_driver_active(ep):
+            self.dongle.detach_kernel_driver(ep)
+        except (usb.core.USBError, NotImplementedError):
+          pass
 
       # Set the default configuration
       self.dongle.set_configuration()
@@ -127,19 +136,19 @@ class unifying_dongle:
     # when a Logitech dongle is first plugged in (and not used as an HID/HID++ device).
     # The following code makes everything work, but it's magic for the moment.
     try:
-      self.send_command(0x21, 0x09, 0x0210, 0x0002, "\x10\xFF\x81\xF1\x00\x00\x00", ep=0x83)
+      self.send_command(0x21, 0x09, 0x0210, 0x0002, b"\x10\xFF\x81\xF1\x00\x00\x00", ep=0x83)
     except Exception:
       pass
 
     # Request the firmware version
-    response = self.send_command(0x21, 0x09, 0x0210, 0x0002, "\x10\xFF\x81\xF1\x01\x00\x00", ep=0x83)
+    response = self.send_command(0x21, 0x09, 0x0210, 0x0002, b"\x10\xFF\x81\xF1\x01\x00\x00", ep=0x83)
     if response[5] != 0x12:
       logging.info('Incompatible Logitech Unifying dongle (type {:02X}). Only Nordic Semiconductor based dongles are supported.'.format(response[5]))
       sys.exit(1)
 
     # Tell the dongle to reset into firmware update mode
     try:
-      self.send_command(0x21, 0x09, 0x0210, 0x0002, "\x10\xFF\x80\xF0\x49\x43\x50", ep=0x83)
+      self.send_command(0x21, 0x09, 0x0210, 0x0002, b"\x10\xFF\x80\xF0\x49\x43\x50", ep=0x83)
     except usb.core.USBError:
 
       # An I/O error is possible here when the device resets before we can read the USB response
@@ -158,8 +167,11 @@ class unifying_dongle:
           # Detach the kernel driver
           logging.info("Putting dongle into firmware update mode - firmware update mode")
           for ep in range(3):
-            if self.dongle.is_kernel_driver_active(ep):
-              self.dongle.detach_kernel_driver(ep)
+            try:
+              if self.dongle.is_kernel_driver_active(ep):
+                self.dongle.detach_kernel_driver(ep)
+            except (usb.core.USBError, NotImplementedError):
+              pass
 
           # Set the configuration
           self.dongle.set_configuration(1)
@@ -170,7 +182,7 @@ class unifying_dongle:
 
     # Verify that the Logitech bootloader showed up
     if not self.dongle:
-      raise exception("Dongle failed to reset into firmware update mode")
+      raise Exception("Dongle failed to reset into firmware update mode")
 
   # Send a command to the Logitech bootloader
   def send_command(self, request_type, request, value, index, data, ep=0x81, timeout=usb_timeout):

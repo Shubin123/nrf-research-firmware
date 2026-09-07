@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 '''
   Copyright (C) 2016 Bastille Networks
 
@@ -29,7 +29,7 @@ WRITE_PAGE      = 0x02
 
 # Verify that we received a command line argument
 if len(sys.argv) < 2:
-  print 'Usage: ./spi-flash.py path-to-firmware.bin'
+  print('Usage: ./spi-flash.py path-to-firmware.bin')
   quit()
 
 # Read in the firmware
@@ -37,28 +37,24 @@ with open(sys.argv[1], 'rb') as f:
   data = f.read()
 
 # Zero pad the data to a multiple of 512 bytes
-if len(data) % 512 > 0: data += '\000' * (512 - len(data) % 512)
+if len(data) % 512 > 0: data += b'\000' * (512 - len(data) % 512)
 
 # Teensy serial client
 class client(serial.Serial):
 
-  # Constructor
-  def __init__self(self, *args, **kwargs):
-    Serial.__init__(self, *args, **kwargs)
-
   # Read until a newline
   def readline(self):
-    string = ''
+    data = b''
     while True:
       char = self.read()
-      if char != '\n':
-        string += char
+      if char != b'\n':
+        data += char
       else: break
-    return string
+    return data
 
   # Read a page
   def read_page(self, page):
-    command = map(chr, [READ_PAGE, page & 0xFF])
+    command = bytes([READ_PAGE, page & 0xFF])
     self.write(command)
     return self.readline()
 
@@ -68,7 +64,7 @@ class client(serial.Serial):
     if len(data) != 512:
       raise Exception("Expected 512 bytes of data, got {0}".format(len(data)))
 
-    command = map(chr, [WRITE_PAGE, page & 0xFF])
+    command = bytes([WRITE_PAGE, page & 0xFF])
     self.write(command)
     self.write(data)
     self.readline()
@@ -90,15 +86,15 @@ ser = client(port=comport, baudrate=115200)
 
 # Write the data, one page at a time
 logging.info('Writing image to flash')
-for x in range(len(data)/512):
+for x in range(len(data)//512):
   page = data[x*512:x*512+512]
   ser.write_page(x, page)
 
 # Verify that the image was written correctly, reading one page at a time
 logging.info("Verifying write")
-for x in range(len(data)/512):
+for x in range(len(data)//512):
   page_hex = ser.read_page(x)
-  page_bytes = page_hex.decode('hex')
+  page_bytes = bytes.fromhex(page_hex.decode('ascii'))
   if page_bytes != data[x*512:x*512+512]:
     raise Exception('Verification failed on page {0}'.format(x))
 

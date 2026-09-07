@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 '''
   Copyright (C) 2016 Bastille Networks
 
@@ -30,7 +30,12 @@ common.radio.set_channel(common.channels[0])
 # Put the radio in continuous tone test mode
 common.radio.enter_tone_test_mode()
 
+logging.info('Transmitting continuous tone on channel {0}. Press Ctrl+C to stop.'.format(common.channels[0]))
+
 # Run indefinitely
-while True:
-  pass
+try:
+  while True:
+    time.sleep(1)
+except KeyboardInterrupt:
+  logging.info('Stopped.')
 
